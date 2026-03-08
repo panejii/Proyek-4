@@ -1,35 +1,169 @@
 import 'package:mongo_dart/mongo_dart.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:logbook_app_020/features/logbook/models/log_model.dart';
+import 'package:logbook_app_020/helpers/log_helper.dart';
 
 class MongoService {
+  static final MongoService _instance = MongoService._internal();
+
+  // Menggunakan nullable agar kita bisa mengecek status inisialisasi
   Db? _db;
+  DbCollection? _collection;
 
-  Future<void> connect() async {
-    // Memastikan file .env sudah dimuat (opsional jika sudah dimuat di main)
-    final uri = dotenv.env['MONGODB_URI'];
-    
-    if (uri == null || uri.isEmpty) {
-      throw Exception("MONGODB_URI tidak ditemukan di file .env atau kosong");
+  final String _source = "mongo_service.dart";
+
+  factory MongoService() => _instance;
+  MongoService._internal();
+
+  /// Fungsi Internal untuk memastikan koleksi siap digunakan (Anti-LateInitializationError)
+  Future<DbCollection> _getSafeCollection() async {
+    if (_db == null || !_db!.isConnected || _collection == null) {
+      await LogHelper.writeLog(
+        "INFO: Koleksi belum siap, mencoba rekoneksi...",
+        source: _source,
+        level: 3,
+      );
+      await connect();
     }
+    return _collection!;
+  }
 
+  /// Inisialisasi Koneksi ke MongoDB Atlas
+  Future<void> connect() async {
     try {
-      _db = await Db.create(uri);
-      await _db!.open();
+      final dbUri = dotenv.env['MONGODB_URI'];
+      if (dbUri == null) throw Exception("MONGODB_URI tidak ditemukan di .env");
+
+      _db = await Db.create(dbUri);
+
+      // Timeout 15 detik agar lebih toleran terhadap jaringan seluler
+      await _db!.open().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw Exception(
+            "Koneksi Timeout. Cek IP Whitelist (0.0.0.0/0) atau Sinyal HP.",
+          );
+        },
+      );
+
+      _collection = _db!.collection('logs');
+
+      await LogHelper.writeLog(
+        "DATABASE: Terhubung & Koleksi Siap",
+        source: _source,
+        level: 2,
+      );
     } catch (e) {
-      throw Exception("Gagal membuka koneksi ke MongoDB: $e");
+      await LogHelper.writeLog(
+        "DATABASE: Gagal Koneksi - $e",
+        source: _source,
+        level: 1,
+      );
+      rethrow;
+    }
+  }
+
+  /// READ: Mengambil data dari Cloud
+  Future<List<Logbook>> getLogs() async {
+    try {
+      final collection = await _getSafeCollection(); // Gunakan jalur aman
+
+      await LogHelper.writeLog(
+        "INFO: Fetching data from Cloud...",
+        source: _source,
+        level: 3,
+      );
+
+      final List<Map<String, dynamic>> data = await collection.find().toList();
+      return data.map((json) => Logbook.fromMap(json)).toList();
+    } catch (e) {
+      await LogHelper.writeLog(
+        "ERROR: Fetch Failed - $e",
+        source: _source,
+        level: 1,
+      );
+      return [];
+    }
+  }
+
+  /// CREATE: Menambahkan data baru
+  Future<void> insertLog(Map<String, dynamic> data) async {
+    try {
+      final collection = await _getSafeCollection();
+
+      await collection.insertOne(data); // ✅ langsung kirim Map
+
+      await LogHelper.writeLog(
+        "SUCCESS: Data '${data['title']}' Saved to Cloud",
+        source: _source,
+        level: 2,
+      );
+    } catch (e) {
+      await LogHelper.writeLog(
+        "ERROR: Insert Failed - $e",
+        source: _source,
+        level: 1,
+      );
+      rethrow;
+    }
+  }
+
+  /// UPDATE: Memperbarui data berdasarkan ID
+  Future<void> updateLog(Logbook log) async {
+    try {
+      final collection = await _getSafeCollection();
+      if (log.id == null)
+        throw Exception("ID Log tidak ditemukan untuk update");
+
+      await collection.replaceOne(where.id(log.id!), log.toMap());
+
+      await LogHelper.writeLog(
+        "DATABASE: Update '${log.title}' Berhasil",
+        source: _source,
+        level: 2,
+      );
+    } catch (e) {
+      await LogHelper.writeLog(
+        "DATABASE: Update Gagal - $e",
+        source: _source,
+        level: 1,
+      );
+      rethrow;
+    }
+  }
+
+  /// DELETE: Menghapus dokumen
+  Future<void> deleteLog(ObjectId id) async {
+    try {
+      final collection = await _getSafeCollection();
+
+      await collection.deleteOne({
+        '_id': id
+      });
+
+      await LogHelper.writeLog(
+        "DATABASE: Delete Success",
+        source: _source,
+        level: 2,
+      );
+    } catch (e) {
+      await LogHelper.writeLog(
+        "DATABASE: Delete Failed - $e",
+        source: _source,
+        level: 1,
+      );
+      rethrow;
     }
   }
 
   Future<void> close() async {
-    if (_db != null && _db!.isConnected) {
+    if (_db != null) {
       await _db!.close();
+      await LogHelper.writeLog(
+        "DATABASE: Koneksi ditutup",
+        source: _source,
+        level: 2,
+      );
     }
-  }
-
-  Db get db {
-    if (_db == null) {
-      throw Exception("Database belum diinisialisasi. Panggil connect() terlebih dahulu.");
-    }
-    return _db!;
   }
 }

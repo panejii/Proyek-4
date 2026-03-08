@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logbook_app_020/features/logbook/models/log_model.dart';
+import 'package:logbook_app_020/services/mongo_service.dart';
 
 class LogController {
   // Data asli yang tersimpan di memori
-  final ValueNotifier<List<LogModel>> logsNotifier = ValueNotifier([]);
-  // Data yang ditampilkan di UI (untuk fitur Search)
-  final ValueNotifier<List<LogModel>> filteredLogs = ValueNotifier([]);
+  final ValueNotifier<List<Logbook>> logsNotifier = ValueNotifier<List<Logbook>>([]);  // Data yang ditampilkan di UI (untuk fitur Search)
+  final ValueNotifier<List<Logbook>> filteredLogs = ValueNotifier([]);
   
   static const String _storageKey = 'saved_logs_data';
 
@@ -27,30 +27,30 @@ class LogController {
   }
 
   // --- 2. Create ---
-  void addLog(String title, String desc, String cat) {
-    final now = DateTime.now();
-    final formattedDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+  Future<void> addLog(String title, String desc, String cat) async {
 
-    final newLog = LogModel(
+    final newLog = Logbook(
       title: title,
       description: desc,
-      timestamp: formattedDate, 
+      date: DateTime.now(),
       category: cat,
     );
+
+    // kirim ke MongoDB
+    await MongoService().insertLog(newLog.toMap());
+
+    // update UI
     logsNotifier.value = [...logsNotifier.value, newLog];
-    _syncAndSave();
   }
 
   // --- 3. Update ---
-  void updateLog(int index, String title, String desc, cat) {
-    final currentLogs = List<LogModel>.from(logsNotifier.value);
-    final now = DateTime.now();
-    final formattedDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+  void updateLog(int index, String title, String desc, String cat) {
+    final currentLogs = List<Logbook>.from(logsNotifier.value);
 
-    currentLogs[index] = LogModel(
+    currentLogs[index] = Logbook(
       title: title,
       description: desc,
-      timestamp: formattedDate,
+      date: DateTime.now(),
       category: cat,
     );
     logsNotifier.value = currentLogs;
@@ -58,14 +58,18 @@ class LogController {
   }
 
   // --- 4. Delete ---
-  void removeLog(int index) {
-    final currentLogs = List<LogModel>.from(logsNotifier.value);
-    // Kita hapus berdasarkan data yang ada di filteredLogs agar tidak salah index saat searching
+  Future<void> removeLog(int index) async {
     final itemToRemove = filteredLogs.value[index];
-    currentLogs.removeWhere((item) => item.timestamp == itemToRemove.timestamp);
-    
+
+    if (itemToRemove.id != null) {
+      await MongoService().deleteLog(itemToRemove.id!);
+    }
+
+    final currentLogs = List<Logbook>.from(logsNotifier.value);
+    currentLogs.removeWhere((log) => log.id == itemToRemove.id);
+
     logsNotifier.value = currentLogs;
-    _syncAndSave();
+    filteredLogs.value = currentLogs;
   }
 
   // --- 5. Persistence Logic ---
@@ -91,7 +95,7 @@ class LogController {
     if (rawJson != null) {
       try {
         final List<dynamic> decoded = jsonDecode(rawJson);
-        final loadedData = decoded.map((item) => LogModel.fromMap(item)).toList();
+        final loadedData = decoded.map((item) => Logbook.fromMap(item)).toList();
         
         logsNotifier.value = loadedData;
         filteredLogs.value = loadedData; // Tampilkan semua saat pertama load
@@ -99,5 +103,12 @@ class LogController {
         debugPrint("Error decoding: $e");
       }
     }
+  }
+
+  Future<void> loadFromMongo() async {
+    final logs = await MongoService().getLogs();
+
+    logsNotifier.value = logs;
+    filteredLogs.value = logs;
   }
 }

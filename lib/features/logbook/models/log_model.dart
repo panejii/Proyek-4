@@ -5,12 +5,15 @@ class Logbook {
   final String title;
   final String description;
   final DateTime date;
+  final String category;
+
 
   Logbook({
     this.id, 
     required this.title, 
     required this.description, 
     required this.date,
+    required this.category,
   });
 
   // [CONVERT] Memasukkan data ke "Kardus" (BSON/Map) untuk dikirim ke Cloud
@@ -20,6 +23,8 @@ class Logbook {
       'title': title,
       'description': description,
       'date': date.toIso8601String(), // Simpan tanggal dalam format standar
+      'category': category,
+
     };
   }
 
@@ -30,6 +35,8 @@ class Logbook {
       title: map['title'] ?? '',
       description: map['description'] ?? '',
       date: map['date'] != null ? DateTime.parse(map['date']) : DateTime.now(),
+      category: map['category'] ?? 'Pribadi',
+
     );
   }
 }
