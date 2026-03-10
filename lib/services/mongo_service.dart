@@ -87,7 +87,7 @@ class MongoService {
   }
 
   /// CREATE: Menambahkan data baru
-  Future<void> insertLog(Map<String, dynamic> data) async {
+  Future<ObjectId?> insertLog(Map<String, dynamic> data) async {
     try {
       final collection = await _getSafeCollection();
 

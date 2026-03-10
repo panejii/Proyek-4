@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logbook_app_020/features/logbook/models/log_model.dart';
 import 'package:logbook_app_020/services/mongo_service.dart';
+import 'package:mongo_dart/mongo_dart.dart'; // <--- Tambahkan ini
+// import lainnya...
 
 class LogController {
   // Data asli yang tersimpan di memori
@@ -28,19 +30,42 @@ class LogController {
 
   // --- 2. Create ---
   Future<void> addLog(String title, String desc, String cat) async {
+    try {
+      // 1. Siapkan data
+      final newLogData = Logbook(
+        title: title,
+        description: desc,
+        date: DateTime.now(),
+        category: cat,
+      );
 
-    final newLog = Logbook(
-      title: title,
-      description: desc,
-      date: DateTime.now(),
-      category: cat,
-    );
+      // 2. Simpan ke MongoDB & Ambil ID-nya
+      final ObjectId? newId = await MongoService().insertLog(newLogData.toMap());
 
-    // kirim ke MongoDB
-    await MongoService().insertLog(newLog.toMap());
+      if (newId != null) {
+        // 3. Buat objek lengkap dengan ID
+        final logWithId = Logbook(
+          id: newId,
+          title: title,
+          description: desc,
+          date: newLogData.date,
+          category: cat,
+        );
 
-    // update UI
-    logsNotifier.value = [...logsNotifier.value, newLog];
+        // 4. UPDATE STATE (PENTING: Gunakan List baru)
+        // Kita update logsNotifier dulu
+        final updatedList = [logWithId, ...logsNotifier.value];
+        logsNotifier.value = updatedList;
+
+        // 5. PAKSA UI REFRESH
+        // Isi filteredLogs dengan list yang sama agar ValueListenableBuilder terpicu
+        filteredLogs.value = List.from(updatedList);
+        
+        print("UI harusnya refresh sekarang. Total data: ${filteredLogs.value.length}");
+      }
+    } catch (e) {
+      print("Error addLog: $e");
+    }
   }
 
   // --- 3. Update ---
@@ -58,18 +83,29 @@ class LogController {
   }
 
   // --- 4. Delete ---
-  Future<void> removeLog(int index) async {
-    final itemToRemove = filteredLogs.value[index];
+  Future<void> removeLog(Logbook logToDelete) async { // Ubah parameter dari int ke Logbook
+    try {
+      // 1. Hapus dari MongoDB menggunakan ID
+      if (logToDelete.id != null) {
+        await MongoService().deleteLog(logToDelete.id!);
+      }
 
-    if (itemToRemove.id != null) {
-      await MongoService().deleteLog(itemToRemove.id!);
+      // 2. Update logsNotifier (Data Master)
+      // Kita buat list baru dan saring semua KECUALI yang ID-nya sama dengan yang dihapus
+      final updatedMainList = logsNotifier.value
+          .where((element) => element.id != logToDelete.id)
+          .toList();
+      
+      logsNotifier.value = updatedMainList;
+
+      // 3. Update filteredLogs (Data Tampilan)
+      // Pastikan filteredLogs juga mendapatkan list yang sama agar UI sinkron
+      filteredLogs.value = List.from(updatedMainList);
+
+      print("Berhasil menghapus: ${logToDelete.title}");
+    } catch (e) {
+      print("Gagal menghapus: $e");
     }
-
-    final currentLogs = List<Logbook>.from(logsNotifier.value);
-    currentLogs.removeWhere((log) => log.id == itemToRemove.id);
-
-    logsNotifier.value = currentLogs;
-    filteredLogs.value = currentLogs;
   }
 
   // --- 5. Persistence Logic ---

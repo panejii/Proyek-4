@@ -240,7 +240,7 @@ class _LogViewState extends State<LogView> {
                 onPressed: () {
 
                   _controller.updateLog(
-                    index,
+                    index,  
                     _titleController.text,
                     _contentController.text,
                     _tempCategory,
@@ -348,6 +348,8 @@ class _LogViewState extends State<LogView> {
                           onPressed: _showAddDialog,
                           child: const Text("Buat Catatan Pertama"),
                         ),
+
+                
                       ],
                     ),
                   );
@@ -423,7 +425,7 @@ class _LogViewState extends State<LogView> {
                             IconButton(
                               icon: const Icon(Icons.delete),
                               onPressed: () =>
-                                  _controller.removeLog(index),
+                                  _controller.removeLog(log),
                             ),
                           ],
                         ),
