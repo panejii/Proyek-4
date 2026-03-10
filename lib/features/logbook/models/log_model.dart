@@ -19,7 +19,7 @@ class Logbook {
   // [CONVERT] Memasukkan data ke "Kardus" (BSON/Map) untuk dikirim ke Cloud
   Map<String, dynamic> toMap() {
     return {
-      '_id': id ?? ObjectId(), // Buat ID otomatis jika belum ada
+      if (id != null) '_id': id,      
       'title': title,
       'description': description,
       'date': date.toIso8601String(), // Simpan tanggal dalam format standar

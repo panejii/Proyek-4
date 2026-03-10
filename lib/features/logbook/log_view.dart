@@ -34,8 +34,12 @@ class _LogViewState extends State<LogView> {
   @override
   void initState() {
     super.initState();
-
     _controller = LogController();
+    
+    // Tambahkan listener manual untuk memaksa rebuild jika diperlukan
+    _controller.filteredLogs.addListener(() {
+      if (mounted) setState(() {});
+    });
 
     Future.microtask(() => _initDatabase());
   }

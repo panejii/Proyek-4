@@ -98,6 +98,9 @@ class MongoService {
         source: _source,
         level: 2,
       );
+
+      return data['_id'] as ObjectId?;
+      
     } catch (e) {
       await LogHelper.writeLog(
         "ERROR: Insert Failed - $e",

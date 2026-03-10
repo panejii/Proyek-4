@@ -31,7 +31,6 @@ class LogController {
   // --- 2. Create ---
   Future<void> addLog(String title, String desc, String cat) async {
     try {
-      // 1. Siapkan data
       final newLogData = Logbook(
         title: title,
         description: desc,
@@ -39,11 +38,9 @@ class LogController {
         category: cat,
       );
 
-      // 2. Simpan ke MongoDB & Ambil ID-nya
       final ObjectId? newId = await MongoService().insertLog(newLogData.toMap());
 
       if (newId != null) {
-        // 3. Buat objek lengkap dengan ID
         final logWithId = Logbook(
           id: newId,
           title: title,
@@ -52,16 +49,14 @@ class LogController {
           category: cat,
         );
 
-        // 4. UPDATE STATE (PENTING: Gunakan List baru)
-        // Kita update logsNotifier dulu
-        final updatedList = [logWithId, ...logsNotifier.value];
-        logsNotifier.value = updatedList;
-
-        // 5. PAKSA UI REFRESH
-        // Isi filteredLogs dengan list yang sama agar ValueListenableBuilder terpicu
-        filteredLogs.value = List.from(updatedList);
+        // Gunakan spread operator untuk menjamin referensi List baru
+        logsNotifier.value = [logWithId, ...logsNotifier.value];
         
-        print("UI harusnya refresh sekarang. Total data: ${filteredLogs.value.length}");
+        // Update filteredLogs agar UI yang menggunakan search juga ikut terupdate
+        filteredLogs.value = [...logsNotifier.value]; 
+        
+        // Opsional: Tetap simpan ke local disk sebagai backup
+        saveToDisk(); 
       }
     } catch (e) {
       print("Error addLog: $e");
@@ -81,6 +76,8 @@ class LogController {
     logsNotifier.value = currentLogs;
     _syncAndSave();
   }
+
+  
 
   // --- 4. Delete ---
   Future<void> removeLog(Logbook logToDelete) async { // Ubah parameter dari int ke Logbook
