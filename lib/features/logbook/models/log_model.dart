@@ -6,7 +6,7 @@ part 'log_model.g.dart';
 @HiveType(typeId: 0)
 class Logbook {
   @HiveField(0)
-  final String? id; // Kita gunakan String agar kompatibel dengan Hive & UI
+  final String? id;
 
   @HiveField(1)
   final String title;
@@ -15,7 +15,7 @@ class Logbook {
   final String description;
 
   @HiveField(3)
-  final String date; // Konsisten sebagai String
+  final String date;
 
   @HiveField(4)
   final String category;
@@ -26,6 +26,9 @@ class Logbook {
   @HiveField(6)
   final String teamId;
 
+  @HiveField(7)
+  final bool isSynced; // true = sudah tersimpan di Atlas, false = pending
+
   Logbook({
     this.id,
     required this.title,
@@ -34,34 +37,31 @@ class Logbook {
     required this.category,
     required this.authorId,
     required this.teamId,
+    this.isSynced = false,
   });
 
-  // Memasukkan data ke Map untuk dikirim ke MongoDB
   Map<String, dynamic> toMap() {
     return {
-      // Jika id ada, ubah String kembali ke ObjectId untuk MongoDB
-      if (id != null) '_id': ObjectId.fromHexString(id!), 
+      if (id != null) '_id': ObjectId.fromHexString(id!),
       'title': title,
       'description': description,
-      'date': date, 
+      'date': date,
       'category': category,
       'authorId': authorId,
       'teamId': teamId,
     };
   }
 
-  // Membongkar data dari MongoDB kembali menjadi objek Flutter
   factory Logbook.fromMap(Map<String, dynamic> map) {
     return Logbook(
-      // Pastikan _id dari Mongo (ObjectId) diubah ke String agar masuk ke variabel id
       id: map['_id'] is ObjectId ? (map['_id'] as ObjectId).toHexString() : map['_id']?.toString(),
       title: map['title'] ?? '',
       description: map['description'] ?? '',
-      // Pastikan tetap String
       date: map['date']?.toString() ?? DateTime.now().toIso8601String(),
       category: map['category'] ?? 'Pribadi',
       authorId: map['authorId'] ?? 'unknown_user',
       teamId: map['teamId'] ?? 'no_team',
+      isSynced: true, // Data dari Cloud = sudah synced
     );
   }
 }

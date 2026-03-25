@@ -24,13 +24,14 @@ class LogbookAdapter extends TypeAdapter<Logbook> {
       category: fields[4] as String,
       authorId: fields[5] as String,
       teamId: fields[6] as String,
+      isSynced: fields[7] == null ? false : fields[7] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, Logbook obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -44,7 +45,9 @@ class LogbookAdapter extends TypeAdapter<Logbook> {
       ..writeByte(5)
       ..write(obj.authorId)
       ..writeByte(6)
-      ..write(obj.teamId);
+      ..write(obj.teamId)
+      ..writeByte(7)
+      ..write(obj.isSynced);
   }
 
   @override
