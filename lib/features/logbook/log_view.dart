@@ -18,16 +18,61 @@ class LogView extends StatefulWidget {
 class _LogViewState extends State<LogView> {
   late final LogController _controller;
   bool _isLoading = false;
+  bool _isRefreshing = false;
 
   @override
   void initState() {
     super.initState();
     _controller = LogController();
     _initDatabase();
+    // Pantau perubahan status koneksi untuk notifikasi SnackBar
+    _controller.isOnline.addListener(_onConnectivityChanged);
+  }
+
+  bool? _lastOnlineStatus;
+
+  void _onConnectivityChanged() {
+    final online = _controller.isOnline.value;
+    if (_lastOnlineStatus == online) return; // hindari duplikat
+    _lastOnlineStatus = online;
+    if (!mounted) return;
+
+    if (!online) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.wifi_off, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text('Koneksi terputus — beralih ke mode offline'),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.wifi, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text('Koneksi pulih — data sedang disinkronkan'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
   void dispose() {
+    _controller.isOnline.removeListener(_onConnectivityChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -45,6 +90,43 @@ class _LogViewState extends State<LogView> {
     finally {
       await _controller.loadLogs(widget.currentUser['teamId']!);
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _refreshLogs() async {
+    if (_isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    try {
+      await _controller.loadLogs(widget.currentUser['teamId']!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.cloud_done, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Text('Data berhasil diperbarui dari cloud'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gagal memperbarui data'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
     }
   }
 
@@ -105,17 +187,20 @@ class _LogViewState extends State<LogView> {
             leading: ValueListenableBuilder<bool>(
               valueListenable: _controller.isOnline,
               builder: (context, online, _) {
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  margin: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
-                  decoration: BoxDecoration(
-                    color: online ? Colors.green.withOpacity(0.1) : Colors.red,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    online ? Icons.wifi : Icons.wifi_off,
-                    color: online ? Colors.green : Colors.white,
-                    size: 20,
+                return Tooltip(
+                  message: online ? 'Online' : 'Offline',
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    margin: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+                    decoration: BoxDecoration(
+                      color: online ? Colors.green.withOpacity(0.15) : Colors.red.withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      online ? Icons.wifi : Icons.wifi_off,
+                      color: online ? Colors.green : Colors.white,
+                      size: 20,
+                    ),
                   ),
                 );
               },
@@ -123,11 +208,23 @@ class _LogViewState extends State<LogView> {
             actions: [
               // Refresh hanya berguna saat online
               if (online)
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  onPressed: () => _controller.loadLogs(widget.currentUser['teamId']!),
-                  tooltip: "Sync dari Cloud",
-                ),
+                _isRefreshing
+                    ? const Padding(
+                        padding: EdgeInsets.all(12.0),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        ),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.refresh),
+                        onPressed: _refreshLogs,
+                        tooltip: "Sync dari Cloud",
+                      ),
               IconButton(
                 icon: const Icon(Icons.logout),
                 onPressed: () => showDialog(

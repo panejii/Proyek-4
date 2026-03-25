@@ -23,24 +23,37 @@ class LogController {
   late final Future<void> _connectivityReady;
 
   // --- Connectivity Setup ---
-  Future<void> _initConnectivity() async {
-    final result = await Connectivity().checkConnectivity();
-    isOnline.value = result != ConnectivityResult.none;
+  // 1. Tambahkan fungsi static pembantu di dalam class LogController
+static bool _checkIsOnline(List<ConnectivityResult> results) {
+  // User dianggap online JIKA list tidak kosong 
+  // DAN JIKA tidak semua elemen di dalamnya adalah 'none'
+  return results.isNotEmpty && !results.every((r) => r == ConnectivityResult.none);
+}
 
-    Connectivity().onConnectivityChanged.listen((result) async {
-      final nowOnline = result != ConnectivityResult.none;
-      final wasOffline = !isOnline.value;
-      isOnline.value = nowOnline;
+// 2. Perbarui method _initConnectivity
+Future<void> _initConnectivity() async {
+  // Cek status awal (Check Connectivity mengembalikan List)
+  final List<ConnectivityResult> initialResults = await Connectivity().checkConnectivity();
+  isOnline.value = _checkIsOnline(initialResults);
 
-      if (nowOnline && wasOffline) {
-        await LogHelper.writeLog("CONNECTIVITY: Koneksi pulih, sync pending...", level: 2);
-        await _syncPendingLogs();
-        // Refresh notifier UI setelah sync selesai
-        logsNotifier.value = _myBox.values.toList();
-        filteredLogs.value = logsNotifier.value;
-      }
-    });
-  }
+  // Pantau perubahan (Stream mengembalikan List)
+  Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) async {
+    final bool nowOnline = _checkIsOnline(results);
+    final bool wasOffline = !isOnline.value;
+    
+    isOnline.value = nowOnline;
+
+    // Logika sinkronisasi jika kembali online
+    if (nowOnline && wasOffline) {
+      await LogHelper.writeLog("CONNECTIVITY: Koneksi pulih, sync pending...", level: 2);
+      await _syncPendingLogs();
+      
+      // Update UI
+      logsNotifier.value = _myBox.values.toList();
+      filteredLogs.value = logsNotifier.value;
+    }
+  });
+}
 
   Future<void> waitForConnectivity() => _connectivityReady;
 
