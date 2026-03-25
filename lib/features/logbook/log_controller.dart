@@ -1,23 +1,18 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:logbook_app_020/features/logbook/models/log_model.dart';
 import 'package:logbook_app_020/services/mongo_service.dart';
-import 'package:mongo_dart/mongo_dart.dart'; // <--- Tambahkan ini
-// import lainnya...
+import 'package:logbook_app_020/helpers/log_helper.dart';
+import 'package:mongo_dart/mongo_dart.dart' show ObjectId;
 
 class LogController {
-  // Data asli yang tersimpan di memori
-  final ValueNotifier<List<Logbook>> logsNotifier = ValueNotifier<List<Logbook>>([]);  // Data yang ditampilkan di UI (untuk fitur Search)
+  final ValueNotifier<List<Logbook>> logsNotifier = ValueNotifier([]);
   final ValueNotifier<List<Logbook>> filteredLogs = ValueNotifier([]);
-  
-  static const String _storageKey = 'saved_logs_data';
 
-  LogController() {
-    loadFromDisk();
-  }
+  // Hive box sebagai penyimpanan lokal utama
+  final Box<Logbook> _myBox = Hive.box<Logbook>('offline_logs');
 
-  // --- 1. Logika Pencarian (Real-time Filtering) ---
+  // --- 1. Logika Pencarian Real-time ---
   void searchLog(String query) {
     if (query.isEmpty) {
       filteredLogs.value = logsNotifier.value;
@@ -28,120 +23,115 @@ class LogController {
     }
   }
 
-  // --- 2. Create ---
-  Future<void> addLog(String title, String desc, String cat) async {
+  // --- 2. LOAD (Offline-First Strategy) ---
+  Future<void> loadLogs(String teamId) async {
+    // Langkah 1: Tampilkan data Hive dulu (instan, tanpa internet)
+    final localData = _myBox.values.toList();
+    logsNotifier.value = localData;
+    filteredLogs.value = localData;
+
+    // Langkah 2: Sync dari Cloud di background
     try {
-      final newLogData = Logbook(
-        title: title,
-        description: desc,
-        date: DateTime.now(),
-        category: cat,
-      );
+      final cloudData = await MongoService().getLogs(teamId);
 
-      final ObjectId? newId = await MongoService().insertLog(newLogData.toMap());
+      // Update Hive dengan data terbaru dari Cloud
+      await _myBox.clear();
+      await _myBox.addAll(cloudData);
 
-      if (newId != null) {
-        final logWithId = Logbook(
-          id: newId,
-          title: title,
-          description: desc,
-          date: newLogData.date,
-          category: cat,
-        );
+      logsNotifier.value = cloudData;
+      filteredLogs.value = cloudData;
 
-        // Gunakan spread operator untuk menjamin referensi List baru
-        logsNotifier.value = [logWithId, ...logsNotifier.value];
-        
-        // Update filteredLogs agar UI yang menggunakan search juga ikut terupdate
-        filteredLogs.value = [...logsNotifier.value]; 
-        
-        // Opsional: Tetap simpan ke local disk sebagai backup
-        saveToDisk(); 
-      }
+      await LogHelper.writeLog("SYNC: Data berhasil diperbarui dari Atlas", level: 2);
     } catch (e) {
-      print("Error addLog: $e");
+      await LogHelper.writeLog("OFFLINE: Menggunakan data cache lokal", level: 2);
     }
   }
 
-  // --- 3. Update ---
-  void updateLog(int index, String title, String desc, String cat) {
-    final currentLogs = List<Logbook>.from(logsNotifier.value);
-
-    currentLogs[index] = Logbook(
+  // --- 3. CREATE (Instant Local + Background Cloud) ---
+  Future<void> addLog(
+    String title,
+    String desc,
+    String category,
+    String authorId,
+    String teamId,
+  ) async {
+    final newLog = Logbook(
+      id: ObjectId().oid,
       title: title,
       description: desc,
-      date: DateTime.now(),
-      category: cat,
+      date: DateTime.now().toIso8601String(),
+      category: category,
+      authorId: authorId,
+      teamId: teamId,
     );
-    logsNotifier.value = currentLogs;
-    _syncAndSave();
-  }
 
-  
-
-  // --- 4. Delete ---
-  Future<void> removeLog(Logbook logToDelete) async { // Ubah parameter dari int ke Logbook
-    try {
-      // 1. Hapus dari MongoDB menggunakan ID
-      if (logToDelete.id != null) {
-        await MongoService().deleteLog(logToDelete.id!);
-      }
-
-      // 2. Update logsNotifier (Data Master)
-      // Kita buat list baru dan saring semua KECUALI yang ID-nya sama dengan yang dihapus
-      final updatedMainList = logsNotifier.value
-          .where((element) => element.id != logToDelete.id)
-          .toList();
-      
-      logsNotifier.value = updatedMainList;
-
-      // 3. Update filteredLogs (Data Tampilan)
-      // Pastikan filteredLogs juga mendapatkan list yang sama agar UI sinkron
-      filteredLogs.value = List.from(updatedMainList);
-
-      print("Berhasil menghapus: ${logToDelete.title}");
-    } catch (e) {
-      print("Gagal menghapus: $e");
-    }
-  }
-
-  // --- 5. Persistence Logic ---
-  
-  // Sinkronisasi antara list asli dan list filter, lalu simpan ke disk
-  void _syncAndSave() {
+    // Simpan ke Hive dulu (instan)
+    await _myBox.add(newLog);
+    logsNotifier.value = [newLog, ...logsNotifier.value];
     filteredLogs.value = logsNotifier.value;
-    saveToDisk();
-  }
 
-  Future<void> saveToDisk() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String encodedData = jsonEncode(
-      logsNotifier.value.map((log) => log.toMap()).toList(),
-    );
-    await prefs.setString(_storageKey, encodedData);
-  }
-
-  Future<void> loadFromDisk() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? rawJson = prefs.getString(_storageKey);
-
-    if (rawJson != null) {
-      try {
-        final List<dynamic> decoded = jsonDecode(rawJson);
-        final loadedData = decoded.map((item) => Logbook.fromMap(item)).toList();
-        
-        logsNotifier.value = loadedData;
-        filteredLogs.value = loadedData; // Tampilkan semua saat pertama load
-      } catch (e) {
-        debugPrint("Error decoding: $e");
-      }
+    // Kirim ke MongoDB di background
+    try {
+      await MongoService().insertLog(newLog.toMap());
+      await LogHelper.writeLog("SUCCESS: Data tersinkron ke Cloud", source: "log_controller.dart");
+    } catch (e) {
+      await LogHelper.writeLog("WARNING: Data tersimpan lokal, akan sinkron saat online", level: 1);
     }
   }
 
-  Future<void> loadFromMongo() async {
-    final logs = await MongoService().getLogs();
+  // --- 4. UPDATE ---
+  Future<void> updateLog(int index, String title, String desc, String category) async {
+    final oldLog = logsNotifier.value[index];
+    final updatedLog = Logbook(
+      id: oldLog.id,
+      title: title,
+      description: desc,
+      date: DateTime.now().toIso8601String(),
+      category: category,
+      authorId: oldLog.authorId,
+      teamId: oldLog.teamId,
+    );
 
-    logsNotifier.value = logs;
-    filteredLogs.value = logs;
+    // Update di Hive
+    final hiveKey = _myBox.keys.elementAt(index);
+    await _myBox.put(hiveKey, updatedLog);
+
+    final updatedList = List<Logbook>.from(logsNotifier.value);
+    updatedList[index] = updatedLog;
+    logsNotifier.value = updatedList;
+    filteredLogs.value = updatedList;
+
+    // Sync ke Cloud
+    try {
+      await MongoService().updateLog(updatedLog);
+    } catch (e) {
+      await LogHelper.writeLog("WARNING: Update gagal ke Cloud - $e", level: 1);
+    }
+  }
+
+  // --- 5. DELETE ---
+  Future<void> removeLog(Logbook logToDelete) async {
+    try {
+      // Hapus dari Hive
+      final keyToDelete = _myBox.keys.firstWhere(
+        (k) => (_myBox.get(k) as Logbook?)?.id == logToDelete.id,
+        orElse: () => null,
+      );
+      if (keyToDelete != null) await _myBox.delete(keyToDelete);
+
+      // Update notifier
+      final updatedList = logsNotifier.value
+          .where((e) => e.id != logToDelete.id)
+          .toList();
+      logsNotifier.value = updatedList;
+      filteredLogs.value = updatedList;
+
+      // Hapus dari Cloud
+      if (logToDelete.id != null) {
+        await MongoService().deleteLog(ObjectId.fromHexString(logToDelete.id!));
+      }
+    } catch (e) {
+      await LogHelper.writeLog("ERROR: Delete gagal - $e", level: 1);
+    }
   }
 }

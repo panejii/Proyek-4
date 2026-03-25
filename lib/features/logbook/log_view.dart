@@ -1,450 +1,273 @@
 import 'package:flutter/material.dart';
 import 'package:logbook_app_020/features/logbook/log_controller.dart';
-import 'package:logbook_app_020/features/auth/login_view.dart';
+import 'package:logbook_app_020/features/logbook/log_editor_page.dart';
 import 'package:logbook_app_020/features/logbook/models/log_model.dart';
+import 'package:logbook_app_020/features/auth/login_view.dart';
 import 'package:logbook_app_020/services/mongo_service.dart';
-import 'package:logbook_app_020/helpers/log_helper.dart';
+import 'package:logbook_app_020/services/access_control_service.dart';
 
 class LogView extends StatefulWidget {
-  final String username;
+  final Map<String, String> currentUser;
 
-  const LogView({super.key, required this.username});
+  const LogView({super.key, required this.currentUser});
 
   @override
   State<LogView> createState() => _LogViewState();
 }
 
 class _LogViewState extends State<LogView> {
-
-  late LogController _controller;
-
+  late final LogController _controller;
   bool _isLoading = false;
-
-  final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _contentController = TextEditingController();
-
-  String _tempCategory = 'Pribadi';
-
-  final List<String> _categories = [
-    'Pekerjaan',
-    'Pribadi',
-    'Urgent'
-  ];
 
   @override
   void initState() {
     super.initState();
     _controller = LogController();
-    
-    // Tambahkan listener manual untuk memaksa rebuild jika diperlukan
-    _controller.filteredLogs.addListener(() {
-      if (mounted) setState(() {});
-    });
-
-    Future.microtask(() => _initDatabase());
+    _initDatabase();
   }
 
   Future<void> _initDatabase() async {
-
     setState(() => _isLoading = true);
-
     try {
-
       await MongoService().connect();
-
-      await _controller.loadFromMongo();
-
-    } catch (e) {
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Error: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-
+    } catch (_) {
+      // Jika gagal konek, tetap lanjut (akan pakai data Hive lokal)
     } finally {
-
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-
+      await _controller.loadLogs(widget.currentUser['teamId']!);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // Navigasi ke halaman editor (gantikan dialog lama)
+  void _goToEditor({Logbook? log, int? index}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LogEditorPage(
+          log: log,
+          index: index,
+          controller: _controller,
+          currentUser: widget.currentUser,
+        ),
+      ),
+    );
+  }
+
   Color _getBgColor(String cat) {
-
-    if (cat == 'Urgent') {
-      return Colors.red.shade50;
-    }
-
-    if (cat == 'Pekerjaan') {
-      return Colors.blue.shade50;
-    }
-
+    if (cat == 'Urgent') return Colors.red.shade50;
+    if (cat == 'Pekerjaan') return Colors.blue.shade50;
     return Colors.green.shade50;
   }
 
   Color _getCategoryTextColor(String cat) {
-
-    if (cat == 'Urgent') {
-      return Colors.red.shade900;
-    }
-
-    if (cat == 'Pekerjaan') {
-      return Colors.blue.shade900;
-    }
-
+    if (cat == 'Urgent') return Colors.red.shade900;
+    if (cat == 'Pekerjaan') return Colors.blue.shade900;
     return Colors.green.shade900;
   }
 
   IconData _getIcon(String cat) {
-
-    if (cat == 'Urgent') {
-      return Icons.warning_amber_rounded;
-    }
-
-    if (cat == 'Pekerjaan') {
-      return Icons.business_center_outlined;
-    }
-
+    if (cat == 'Urgent') return Icons.warning_amber_rounded;
+    if (cat == 'Pekerjaan') return Icons.business_center_outlined;
     return Icons.person_outline;
-  }
-
-  void _showAddDialog() {
-
-    _titleController.clear();
-    _contentController.clear();
-
-    _tempCategory = 'Pribadi';
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-
-          return AlertDialog(
-
-            title: const Text("Catatan Baru"),
-
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-
-                TextField(
-                  controller: _titleController,
-                  decoration: const InputDecoration(
-                    hintText: "Judul",
-                  ),
-                ),
-
-                TextField(
-                  controller: _contentController,
-                  decoration: const InputDecoration(
-                    hintText: "Deskripsi",
-                  ),
-                ),
-
-                const SizedBox(height: 15),
-
-                DropdownButton<String>(
-                  value: _tempCategory,
-                  isExpanded: true,
-                  items: _categories
-                      .map((e) => DropdownMenuItem(
-                            value: e,
-                            child: Text(e),
-                          ))
-                      .toList(),
-                  onChanged: (val) =>
-                      setDialogState(() => _tempCategory = val!),
-                ),
-              ],
-            ),
-
-            actions: [
-
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("Batal"),
-              ),
-
-              ElevatedButton(
-                onPressed: () {
-
-                  if (_titleController.text.trim().isEmpty) return;
-
-                  _controller.addLog(
-                    _titleController.text,
-                    _contentController.text,
-                    _tempCategory,
-                  );
-
-                  Navigator.pop(ctx);
-                },
-                child: const Text("Simpan"),
-              )
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  void _showEditDialog(int index, Logbook log) {
-
-    _titleController.text = log.title;
-    _contentController.text = log.description;
-    _tempCategory = log.category;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-
-          return AlertDialog(
-
-            title: const Text("Edit Catatan"),
-
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-
-                TextField(controller: _titleController),
-
-                TextField(controller: _contentController),
-
-                const SizedBox(height: 15),
-
-                DropdownButton<String>(
-                  value: _tempCategory,
-                  isExpanded: true,
-                  items: _categories
-                      .map((e) => DropdownMenuItem(
-                            value: e,
-                            child: Text(e),
-                          ))
-                      .toList(),
-                  onChanged: (val) =>
-                      setDialogState(() => _tempCategory = val!),
-                ),
-              ],
-            ),
-
-            actions: [
-
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("Batal"),
-              ),
-
-              ElevatedButton(
-                onPressed: () {
-
-                  _controller.updateLog(
-                    index,  
-                    _titleController.text,
-                    _contentController.text,
-                    _tempCategory,
-                  );
-
-                  Navigator.pop(ctx);
-                },
-                child: const Text("Update"),
-              )
-            ],
-          );
-        },
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentRole = widget.currentUser['role']!;
+    final currentUid = widget.currentUser['uid']!;
 
     return Scaffold(
-
       appBar: AppBar(
-        title: Text("Log: ${widget.username}"),
-
+        title: Text("Logbook: ${widget.currentUser['username']} (${widget.currentUser['role']})"),
         actions: [
-
+          // Tombol refresh
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _controller.loadLogs(widget.currentUser['teamId']!),
+            tooltip: "Sync dari Cloud",
+          ),
+          // Tombol logout
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {
-
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const LoginView(),
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text("Konfirmasi Logout"),
+                  content: const Text("Apakah Anda yakin ingin keluar?"),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("Batal"),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(builder: (_) => const LoginView()),
+                          (route) => false,
+                        );
+                      },
+                      child: const Text("Ya, Keluar", style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
                 ),
               );
             },
-          )
-
+          ),
         ],
       ),
-
       body: Column(
-
         children: [
-
+          // Search bar
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
               onChanged: (v) => _controller.searchLog(v),
               decoration: InputDecoration(
                 hintText: "Cari judul...",
                 prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ),
 
+          // Indikator role
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: [
+                Icon(
+                  currentRole == 'Ketua' ? Icons.admin_panel_settings : Icons.person,
+                  size: 16,
+                  color: currentRole == 'Ketua' ? Colors.orange : Colors.grey,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  "Login sebagai: $currentRole · Tim: ${widget.currentUser['teamId']}",
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+
+          // List logs
           Expanded(
-
-            child: ValueListenableBuilder<List<Logbook>>(
-
-              valueListenable: _controller.filteredLogs,
-
-              builder: (context, list, child) {
-
-                if (_isLoading) {
-
-                  return const Center(
+            child: _isLoading
+                ? const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         CircularProgressIndicator(),
                         SizedBox(height: 16),
-                        Text("Menghubungkan ke MongoDB Atlas..."),
+                        Text("Memuat data..."),
                       ],
                     ),
-                  );
-                }
-
-                if (list.isEmpty) {
-
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-
-                        const Icon(
-                          Icons.cloud_off,
-                          size: 64,
-                          color: Colors.grey,
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        const Text(
-                          "Belum ada catatan di Cloud.",
-                        ),
-
-                        const SizedBox(height: 10),
-
-                        ElevatedButton(
-                          onPressed: _showAddDialog,
-                          child: const Text("Buat Catatan Pertama"),
-                        ),
-
-                
-                      ],
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-
-                  itemCount: list.length,
-
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-
-                  itemBuilder: (context, index) {
-
-                    final log = list[index];
-
-                    return Card(
-
-                      color: _getBgColor(log.category),
-
-                      child: ListTile(
-
-                        leading: Icon(
-                          _getIcon(log.category),
-                        ),
-
-                        title: Text(
-                          log.title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
+                  )
+                : ValueListenableBuilder<List<Logbook>>(
+                    valueListenable: _controller.filteredLogs,
+                    builder: (context, list, _) {
+                      if (list.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.note_alt_outlined, size: 64, color: Colors.grey),
+                              const SizedBox(height: 16),
+                              const Text("Belum ada catatan."),
+                              const SizedBox(height: 10),
+                              ElevatedButton(
+                                onPressed: () => _goToEditor(),
+                                child: const Text("Buat Catatan Pertama"),
+                              ),
+                            ],
                           ),
-                        ),
+                        );
+                      }
 
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                      return ListView.builder(
+                        itemCount: list.length,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemBuilder: (context, index) {
+                          final log = list[index];
+                          final bool isOwner = log.authorId == currentUid;
 
-                            if (log.description.isNotEmpty)
-                              Text(log.description),
+                          return Card(
+                            color: _getBgColor(log.category),
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            child: ListTile(
+                              // Ikon: cloud_done jika punya ID (sudah sync), cloud_upload jika belum
+                              leading: Icon(
+                                log.id != null ? Icons.cloud_done : Icons.cloud_upload_outlined,
+                                color: log.id != null ? Colors.green : Colors.orange,
+                              ),
+                              title: Text(
+                                log.title,
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (log.description.isNotEmpty)
+                                    Text(
+                                      log.description,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "Kategori: ${log.category}",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: _getCategoryTextColor(log.category),
+                                    ),
+                                  ),
+                                  Text(
+                                    log.date,
+                                    style: const TextStyle(fontSize: 10, color: Colors.black54),
+                                  ),
+                                ],
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // GATEKEEPER: Tombol Edit
+                                  if (AccessControlService.canPerform(
+                                    currentRole,
+                                    AccessControlService.actionUpdate,
+                                    isOwner: isOwner,
+                                  ))
+                                    IconButton(
+                                      icon: const Icon(Icons.edit, color: Colors.blue),
+                                      onPressed: () => _goToEditor(log: log, index: index),
+                                    ),
 
-                            const SizedBox(height: 6),
-
-                            Text(
-                              "Prioritas: ${log.category}",
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: _getCategoryTextColor(log.category),
+                                  // GATEKEEPER: Tombol Delete
+                                  if (AccessControlService.canPerform(
+                                    currentRole,
+                                    AccessControlService.actionDelete,
+                                    isOwner: isOwner,
+                                  ))
+                                    IconButton(
+                                      icon: const Icon(Icons.delete, color: Colors.red),
+                                      onPressed: () => _controller.removeLog(log),
+                                    ),
+                                ],
                               ),
                             ),
-
-                            const SizedBox(height: 4),
-
-                            Text(
-                              log.date.toString(),
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-
-                            IconButton(
-                              icon: const Icon(Icons.edit),
-                              onPressed: () =>
-                                  _showEditDialog(index, log),
-                            ),
-
-                            IconButton(
-                              icon: const Icon(Icons.delete),
-                              onPressed: () =>
-                                  _controller.removeLog(log),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
           ),
         ],
       ),
 
       floatingActionButton: FloatingActionButton(
-        onPressed: _showAddDialog,
+        onPressed: () => _goToEditor(),
         child: const Icon(Icons.add),
       ),
     );

@@ -33,27 +33,24 @@ class _LoginViewState extends State<LoginView> {
     final user = _userController.text.trim();
     final pass = _passController.text.trim();
 
-    // Validasi field kosong
     if (user.isEmpty || pass.isEmpty) {
       _showSnack("Username dan Password tidak boleh kosong");
       return;
     }
 
-    final isSuccess = _controller.validateLogin(user, pass);
+    final currentUser = _controller.validateLogin(user, pass);
 
-    if (isSuccess) {
+    if (currentUser != null) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => LogView(username: user),
+          builder: (_) => LogView(currentUser: currentUser),
         ),
       );
     } else {
       if (_controller.shouldLock()) {
         _showSnack("Login gagal 3x. Tunggu 10 detik");
-        setState(() {
-          _isButtonDisabled = true;
-        });
+        setState(() => _isButtonDisabled = true);
 
         Future.delayed(const Duration(seconds: 10), () {
           if (!mounted) return;
