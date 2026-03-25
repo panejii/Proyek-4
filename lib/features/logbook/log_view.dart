@@ -101,18 +101,24 @@ class _LogViewState extends State<LogView> {
           appBar: AppBar(
             title: Text("Logbook: ${widget.currentUser['username']}"),
             // Ikon status koneksi di AppBar
-            leading: Padding(
-              padding: const EdgeInsets.only(left: 10),
-              child: online
-                  ? const Icon(Icons.wifi, color: Colors.green)
-                  : Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade600,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.wifi_off, color: Colors.white, size: 20),
-                    ),
+            // Di dalam class _LogViewState build method
+            leading: ValueListenableBuilder<bool>(
+              valueListenable: _controller.isOnline,
+              builder: (context, online, _) {
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  margin: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: online ? Colors.green.withOpacity(0.1) : Colors.red,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    online ? Icons.wifi : Icons.wifi_off,
+                    color: online ? Colors.green : Colors.white,
+                    size: 20,
+                  ),
+                );
+              },
             ),
             actions: [
               // Refresh hanya berguna saat online
